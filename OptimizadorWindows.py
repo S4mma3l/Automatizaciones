@@ -12,6 +12,26 @@ from datetime import datetime
 LOG_FILE = "optimizador_windows.log"
 logging.basicConfig(filename=LOG_FILE, level=logging.INFO, format="%(asctime)s - %(message)s")
 
+# Lista de aplicaciones y servicios críticos que no deben desactivarse
+APLICACIONES_ESENCIALES = [
+    "OptimizadorWindows",  # El optimizador no debe desactivarse
+    "OneDrive",  # Sincronización en la nube (opcional según configuración del usuario)
+    "SecurityHealth",  # Seguridad de Windows
+    "Windows Defender",  # Antivirus predeterminado
+    "AudioEndpointBuilder",  # Sonido
+    "DisplaySwitch",  # Pantallas múltiples
+    "ctfmon",  # Gestión de idioma y teclado
+]
+
+SERVICIOS_ESENCIALES = [
+    "WinDefend",  # Antivirus de Windows
+    "wuauserv",  # Actualizaciones automáticas de Windows
+    "BITS",  # Servicio de transferencia inteligente en segundo plano
+    "AudioSrv",  # Servicio de audio de Windows
+    "Spooler",  # Impresión
+    "EventLog",  # Registro de eventos del sistema
+]
+
 # Verificar si el programa tiene privilegios de administrador
 def verificar_administrador():
     return ctypes.windll.shell32.IsUserAnAdmin()
@@ -54,11 +74,65 @@ def limpiar_archivos():
             resultados.append(f"Error al limpiar {directorio}: {e}")
     return resultados
 
+# Verificar si un elemento es esencial
+def es_aplicacion_esencial(nombre):
+    for app in APLICACIONES_ESENCIALES:
+        if app.lower() in nombre.lower():
+            return True
+    return False
+
+def es_servicio_esencial(nombre):
+    for servicio in SERVICIOS_ESENCIALES:
+        if servicio.lower() in nombre.lower():
+            return True
+    return False
+
+# Desactivar aplicaciones de inicio innecesarias
+def desactivar_aplicaciones_inicio():
+    resultados = []
+
+    claves_registro = [
+        (reg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run"),
+        (reg.HKEY_LOCAL_MACHINE, r"Software\Microsoft\Windows\CurrentVersion\Run")
+    ]
+
+    for hive, subclave in claves_registro:
+        try:
+            clave = reg.OpenKey(hive, subclave, 0, reg.KEY_ALL_ACCESS)
+            num_valores = reg.QueryInfoKey(clave)[1]
+            for i in range(num_valores):
+                nombre, _, _ = reg.EnumValue(clave, 0)
+                if not es_aplicacion_esencial(nombre):
+                    reg.DeleteValue(clave, nombre)
+                    resultados.append(f"Desactivada aplicación de inicio: {nombre}")
+                else:
+                    resultados.append(f"Aplicación esencial preservada: {nombre}")
+            reg.CloseKey(clave)
+        except Exception as e:
+            resultados.append(f"Error al procesar clave del registro: {subclave} - {e}")
+
+    carpeta_inicio = os.path.expanduser("~\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Startup")
+    try:
+        for archivo in os.listdir(carpeta_inicio):
+            archivo_path = os.path.join(carpeta_inicio, archivo)
+            if not es_aplicacion_esencial(archivo):
+                os.remove(archivo_path)
+                resultados.append(f"Eliminado acceso directo: {archivo}")
+            else:
+                resultados.append(f"Acceso directo esencial preservado: {archivo}")
+    except Exception as e:
+        resultados.append(f"Error al limpiar accesos directos: {e}")
+
+    return resultados
+
 # Detener servicios innecesarios
 def detener_servicios():
     servicios = ["DiagTrack", "SysMain", "WSearch", "CDPUserSvc"]
     resultados = []
     for servicio in servicios:
+        if es_servicio_esencial(servicio):
+            resultados.append(f"Servicio esencial preservado: {servicio}")
+            continue
         try:
             subprocess.run(["sc", "stop", servicio], check=True, capture_output=True)
             subprocess.run(["sc", "config", servicio, "start=disabled"], check=True, capture_output=True)
@@ -67,7 +141,7 @@ def detener_servicios():
             resultados.append(f"No se pudo detener/deshabilitar el servicio '{servicio}'.")
     return resultados
 
-# Cambiar a un plan de energía eficiente
+# Ajustar el plan de energía a alto rendimiento
 def ajustar_plan_energia():
     try:
         subprocess.run(["powercfg", "-setactive", "SCHEME_MIN"], check=True)
@@ -75,25 +149,7 @@ def ajustar_plan_energia():
     except subprocess.CalledProcessError as e:
         return f"Error al cambiar el plan de energía: {e}"
 
-# Desactivar animaciones visuales para mayor rendimiento
-def desactivar_animaciones():
-    try:
-        clave = reg.OpenKey(reg.HKEY_CURRENT_USER, r"Control Panel\\Desktop", 0, reg.KEY_SET_VALUE)
-        reg.SetValueEx(clave, "UserPreferencesMask", 0, reg.REG_BINARY, b'\x90\x12\x03\x80\x10\x00\x00\x00')
-        reg.CloseKey(clave)
-        return "Animaciones visuales desactivadas."
-    except Exception as e:
-        return f"Error al desactivar animaciones: {e}"
-
-# Liberar memoria automáticamente
-def liberar_memoria():
-    try:
-        subprocess.run(["cmd.exe", "/c", "echo", "off", "|", "wmic", "os", "get", "freephysicalmemory"], capture_output=True)
-        return "Memoria liberada exitosamente."
-    except Exception as e:
-        return f"Error al liberar memoria: {e}"
-
-# Interfaz gráfica
+# Mostrar la ventana gráfica con los resultados
 def mostrar_ventana(resultados):
     root = tk.Tk()
     root.title("Optimizador de Windows")
@@ -109,7 +165,7 @@ def mostrar_ventana(resultados):
     tk.Button(root, text="Cerrar", command=root.destroy, bg="#007BFF", fg="white").pack(pady=10)
     root.mainloop()
 
-# Función principal de optimización
+# Función principal
 def optimizar_sistema():
     if not verificar_administrador():
         messagebox.showerror("Error", "El programa debe ejecutarse como administrador.")
@@ -118,10 +174,9 @@ def optimizar_sistema():
     agregar_a_inicio()
     resultados = []
     resultados.extend(limpiar_archivos())
+    resultados.extend(desactivar_aplicaciones_inicio())
     resultados.extend(detener_servicios())
     resultados.append(ajustar_plan_energia())
-    resultados.append(desactivar_animaciones())
-    resultados.append(liberar_memoria())
     
     resumen = "\n".join(resultados)
     logging.info(resumen)
